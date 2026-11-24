@@ -220,6 +220,45 @@ docker start trabalho4-servico
 docker ps --filter "name=trabalho4-servico"
 ```
 
+## Executando em Linux ou GitHub Codespaces
+
+Os comandos acima foram escritos para o PowerShell do Windows. Em um terminal Linux (por exemplo, no GitHub Codespaces), use esta sequência:
+
+```bash
+git clone https://github.com/zanry0x/trabalho4-docker-servico-linux.git   # não é necessário no Codespaces
+cd trabalho4-docker-servico-linux                                         # não é necessário no Codespaces
+
+# Construir e iniciar
+docker build -t trabalho4-servico:1.0 .
+docker run -d --name trabalho4-servico --restart on-failure:3 --memory 128m --cpus 0.50 --pids-limit 50 --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true -p 8081:8080 -e PORT=8080 -e LOG_LEVEL=INFO -e PYTHONDONTWRITEBYTECODE=1 trabalho4-servico:1.0
+
+# Estado, teste, usuário e logs
+docker ps
+curl http://localhost:8081/health
+curl http://localhost:8081/
+docker exec trabalho4-servico id
+docker logs --tail 20 trabalho4-servico
+
+# Antes da falha
+docker inspect --format "Restarts={{.RestartCount}} MemoryBytes={{.HostConfig.Memory}} NanoCPUs={{.HostConfig.NanoCpus}} ReadOnly={{.HostConfig.ReadonlyRootfs}} CapDrop={{.HostConfig.CapDrop}} Privileged={{.HostConfig.Privileged}}" trabalho4-servico
+docker stats --no-stream trabalho4-servico
+
+# Falha controlada (com o container rodando há pelo menos 10 segundos)
+curl -i http://localhost:8081/fail
+sleep 5
+
+# Depois da falha
+docker ps -a --filter "name=trabalho4-servico"
+docker inspect --format "Restarts={{.RestartCount}}" trabalho4-servico
+docker logs --tail 30 trabalho4-servico
+curl http://localhost:8081/health
+
+# Parada normal
+docker stop trabalho4-servico
+docker ps -a --filter "name=trabalho4-servico"
+docker logs --tail 5 trabalho4-servico
+```
+
 ## Evidências
 
 ### Serviço em execução e teste de disponibilidade
