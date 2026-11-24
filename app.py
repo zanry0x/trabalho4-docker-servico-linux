@@ -1,6 +1,7 @@
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
+import signal
 import time
 
 PORT = int(os.getenv("PORT", "8080"))
@@ -47,7 +48,13 @@ class ServicoHandler(BaseHTTPRequestHandler):
         return
 
 
+def encerrar_graciosamente(sinal, quadro):
+    registrar("SIGTERM recebido. Encerrando o serviço normalmente.")
+    raise SystemExit(0)
+
+
 if __name__ == "__main__":
+    signal.signal(signal.SIGTERM, encerrar_graciosamente)
     registrar(f"Serviço iniciado na porta {PORT}, com UID {os.getuid()}")
     servidor = ThreadingHTTPServer(("0.0.0.0", PORT), ServicoHandler)
     servidor.serve_forever()

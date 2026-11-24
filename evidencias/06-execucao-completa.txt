@@ -1,0 +1,85 @@
+Execução completa da sequência da apresentação - 24/11/2026
+Imagem reconstruída com o tratamento de SIGTERM (parada normal com código 0).
+
+PS> docker run -d --name trabalho4-servico --restart on-failure:3 --memory 128m --cpus 0.50 --pids-limit 50 --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true -p 8081:8080 -e PORT=8080 -e LOG_LEVEL=INFO -e PYTHONDONTWRITEBYTECODE=1 trabalho4-servico:1.0
+686d63251fe683edc056f10a38e733fc7024831c2266d38485bcac7d9d46e1fd
+
+PS> curl.exe http://localhost:8081/health
+{"status": "ok"}
+
+PS> curl.exe http://localhost:8081/
+{"mensagem": "Serviço do Trabalho 4 está em execução", "pid": 1, "uid": 10001, "porta": 8080}
+
+PS> docker ps --filter "name=trabalho4-servico"
+CONTAINER ID   IMAGE                   COMMAND           CREATED         STATUS         PORTS                                         NAMES
+686d63251fe6   trabalho4-servico:1.0   "python app.py"   3 seconds ago   Up 3 seconds   0.0.0.0:8081->8080/tcp, [::]:8081->8080/tcp   trabalho4-servico
+
+--- Usuário efetivo ---
+
+PS> docker exec trabalho4-servico id
+uid=10001(appuser) gid=101(appgroup) groups=101(appgroup)
+
+--- Limites e isolamento (ANTES da falha) ---
+
+PS> docker inspect --format "Restarts={{.RestartCount}} MemoryBytes={{.HostConfig.Memory}} NanoCPUs={{.HostConfig.NanoCpus}} ReadOnly={{.HostConfig.ReadonlyRootfs}} CapDrop={{.HostConfig.CapDrop}} Privileged={{.HostConfig.Privileged}}" trabalho4-servico
+Restarts=0 MemoryBytes=134217728 NanoCPUs=500000000 ReadOnly=true CapDrop=[ALL] Privileged=false
+
+PS> docker stats --no-stream --format "{{.Name}} CPU={{.CPUPerc}} MEM={{.MemUsage}} PIDS={{.PIDs}}" trabalho4-servico
+trabalho4-servico CPU=0.01% MEM=14.16MiB / 128MiB PIDS=1
+
+--- Falha controlada (container rodando há mais de 10 segundos) ---
+
+PS> curl.exe -i http://localhost:8081/fail
+HTTP/1.0 500 Internal Server Error
+Server: BaseHTTP/0.6 Python/3.13.18
+Date: Tue, 24 Nov 2026 17:58:46 GMT
+Content-Type: application/json; charset=utf-8
+Content-Length: 37
+
+{"erro": "Falha controlada acionada"}
+
+--- Recuperação automática (DEPOIS da falha) ---
+
+PS> docker ps -a --filter "name=trabalho4-servico"
+CONTAINER ID   IMAGE                   COMMAND           CREATED          STATUS         PORTS                                         NAMES
+686d63251fe6   trabalho4-servico:1.0   "python app.py"   28 seconds ago   Up 4 seconds   0.0.0.0:8081->8080/tcp, [::]:8081->8080/tcp   trabalho4-servico
+
+PS> docker inspect --format "Restarts={{.RestartCount}}" trabalho4-servico
+Restarts=1
+
+PS> curl.exe http://localhost:8081/health
+{"status": "ok"}
+
+PS> docker logs --tail 20 trabalho4-servico
+2026-11-24 17:58:24 [INFO] Serviço iniciado na porta 8080, com UID 10001
+2026-11-24 17:58:26 [INFO] Requisição recebida: /health
+2026-11-24 17:58:26 [INFO] Requisição recebida: /
+2026-11-24 17:58:46 [INFO] Requisição recebida: /fail
+2026-11-24 17:58:46 [INFO] Falha controlada solicitada. Encerrando processo com código 1.
+2026-11-24 17:58:46 [INFO] Serviço iniciado na porta 8080, com UID 10001
+2026-11-24 17:58:51 [INFO] Requisição recebida: /health
+
+--- Parada normal ---
+
+PS> docker stop trabalho4-servico
+trabalho4-servico
+
+PS> docker ps -a --filter "name=trabalho4-servico"
+CONTAINER ID   IMAGE                   COMMAND           CREATED          STATUS                              PORTS     NAMES
+686d63251fe6   trabalho4-servico:1.0   "python app.py"   28 seconds ago   Exited (0) Less than a second ago             trabalho4-servico
+
+PS> docker logs --tail 5 trabalho4-servico
+2026-11-24 17:58:46 [INFO] Requisição recebida: /fail
+2026-11-24 17:58:46 [INFO] Falha controlada solicitada. Encerrando processo com código 1.
+2026-11-24 17:58:46 [INFO] Serviço iniciado na porta 8080, com UID 10001
+2026-11-24 17:58:51 [INFO] Requisição recebida: /health
+2026-11-24 17:58:51 [INFO] SIGTERM recebido. Encerrando o serviço normalmente.
+
+--- Nova inicialização ---
+
+PS> docker start trabalho4-servico
+trabalho4-servico
+
+PS> docker ps --filter "name=trabalho4-servico"
+CONTAINER ID   IMAGE                   COMMAND           CREATED          STATUS         PORTS                                         NAMES
+686d63251fe6   trabalho4-servico:1.0   "python app.py"   31 seconds ago   Up 2 seconds   0.0.0.0:8081->8080/tcp, [::]:8081->8080/tcp   trabalho4-servico

@@ -49,7 +49,8 @@ Trabalho4-Docker/
     ├── 02-usuario-e-logs.png
     ├── 03-falha-e-recuperacao.png
     ├── 04-configuracao-externa.png
-    └── 05-parada-normal.png
+    ├── 05-parada-normal.png
+    └── 06-execucao-completa.txt
 ```
 
 ## Segurança e isolamento
@@ -66,7 +67,22 @@ O container foi iniciado com as seguintes proteções:
 - `--cpus 0.50`: limita o uso a 0,5 CPU.
 - `--pids-limit 50`: limita a quantidade de processos.
 
-A aplicação usa a porta interna `8080`, acima de 1024, por isso o usuário sem privilégios consegue iniciar o serviço sem necessidade de permissões administrativas.
+O container **não** usa `--privileged` (`Privileged=false` no `docker inspect`).
+
+### Acessos necessários
+
+| Recurso | Acesso | Justificativa |
+|---|---|---|
+| `/app/app.py` | Leitura, dono `appuser` | Único arquivo que a aplicação precisa ler |
+| Raiz do sistema de arquivos | Somente leitura | A aplicação não grava arquivos; logs vão para a saída padrão |
+| `/tmp` | Leitura e escrita (tmpfs em memória) | Área temporária caso o Python precise, descartada ao parar |
+| Porta `8080/tcp` | Escuta | Porta acima de 1024, não exige privilégio de root nem a capability `NET_BIND_SERVICE` |
+
+Como a porta interna é maior que 1024, o usuário sem privilégios consegue iniciar o serviço mesmo com todas as capabilities removidas.
+
+### Parada normal
+
+A aplicação trata o sinal `SIGTERM` enviado pelo `docker stop`: registra a mensagem `SIGTERM recebido. Encerrando o serviço normalmente.` e encerra com código `0`. Assim, o container fica `Exited (0)` e a política `on-failure` não reinicia o serviço. Já a rota `/fail` encerra com código `1`, o que aciona o reinício automático.
 
 ## Configuração externa
 
@@ -158,6 +174,14 @@ ReadOnly=true
 CapDrop=[ALL]
 ```
 
+Para ver o limite de memória aplicado em tempo real:
+
+```powershell
+docker stats --no-stream trabalho4-servico
+```
+
+A coluna de memória mostra o uso sobre o limite, por exemplo `14.16MiB / 128MiB`.
+
 ### 8. Simular uma falha controlada
 
 Deixar o container em execução por pelo menos 10 segundos e executar:
@@ -186,9 +210,10 @@ No teste realizado, o contador passou de `Restarts=0` para `Restarts=1`. Os logs
 ```powershell
 docker stop trabalho4-servico
 docker ps -a --filter "name=trabalho4-servico"
+docker logs --tail 5 trabalho4-servico
 ```
 
-A parada normal não deve disparar a política `on-failure`. Para iniciar novamente:
+O estado esperado é `Exited (0)`, e o log final mostra `SIGTERM recebido. Encerrando o serviço normalmente.` A parada normal não dispara a política `on-failure`. Para iniciar novamente:
 
 ```powershell
 docker start trabalho4-servico
@@ -225,7 +250,21 @@ O container temporário usou `PORT=9090` e `LOG_LEVEL=DEBUG`, configurados no co
 
 ![Parada normal e reinício manual](evidencias/05-parada-normal.png)
 
-O `docker stop` encerrou normalmente o container. Em seguida, `docker start` colocou o serviço novamente em execução.
+O `docker stop` encerrou o container e `docker start` colocou o serviço novamente em execução. Nessa primeira versão, a aplicação ainda não tratava o `SIGTERM`, por isso aparece `Exited (137)`: o Docker esperou 10 segundos e forçou o encerramento. O problema foi corrigido no `app.py` (veja a evidência seguinte).
+
+### Execução completa após a correção (saída de terminal)
+
+Arquivo: [evidencias/06-execucao-completa.txt](evidencias/06-execucao-completa.txt)
+
+Registra toda a sequência da apresentação com a imagem atual:
+
+- serviço em execução, rota `/` com PID `1` e UID `10001`;
+- `docker exec ... id` com `uid=10001(appuser)`;
+- **antes da falha:** `Restarts=0`, limite de 128 MB / 0,5 CPU, `ReadOnly=true`, `CapDrop=[ALL]`, `Privileged=false`, e `docker stats` com `14.16MiB / 128MiB`;
+- falha controlada com HTTP 500;
+- **depois da falha:** `Restarts=1`, nova inicialização nos logs e `/health` respondendo;
+- parada normal com `Exited (0)` e o log do `SIGTERM`;
+- nova inicialização com `docker start`.
 
 ## Conclusão
 

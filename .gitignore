@@ -1,3 +1,5 @@
 __pycache__/
 *.pyc
 .env
+# historico de conversa local (nao faz parte da entrega)
+historico-codex.md
